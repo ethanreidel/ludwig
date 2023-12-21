@@ -26,7 +26,9 @@ from ludwig.model_export.base_model_exporter import BaseModelExporter, LudwigTor
 class OnnxExporter(BaseModelExporter):
     """Class that abstracts the convertion of torch to onnx."""
 
-    def export(self, model_path, export_path, output_model_name, quantize: bool):
+    def export(
+        self, model_path, export_path, output_model_name, config_input_names, config_output_names, quantize=False
+    ):
         ludwig_model = LudwigModel.load(model_path)
         if quantize:
             quantized_ludwig_model = self.quantize_ludwig_model(ludwig_model)
@@ -48,13 +50,6 @@ class OnnxExporter(BaseModelExporter):
         channels = ludwig_model.config["input_features"][0]["encoder"]["num_channels"]
         example_input = torch.randn(1, channels, width, height, requires_grad=True)
 
-        config_input_names = ludwig_model.config["input_features"][0]["name"]
-        config_output_names = ludwig_model.config["output_features"][0]["name"]
-        config_input_list = []
-        config_output_list = []
-        config_input_list.append(config_input_names)
-        config_output_list.append(config_output_names)
-
         torch.onnx.export(
             model,
             example_input,
@@ -62,17 +57,9 @@ class OnnxExporter(BaseModelExporter):
             opset_version=17,
             export_params=True,
             do_constant_folding=True,
-            input_names=config_input_list,
-            output_names=config_output_list
-            # input_names = config_input_names,
-            # output_names = config_output_names
-            # input_names=["input"],
-            # output_names=["combiner_hidden_1", "output", "combiner_hidden_2"],
+            input_names=config_input_names,
+            output_names=config_output_names,
         )
-
-    def load_model(self, model_path):
-        ludwig_model = LudwigModel.load(model_path)
-        return ludwig_model
 
     def check_model_export(self, path):
         onnx_model = onnx.load(path)
