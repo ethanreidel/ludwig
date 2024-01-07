@@ -130,6 +130,10 @@ class ECD(BaseModel):
         else:
             targets = None
 
+        # print(list(inputs.keys()))
+        # print("-------")
+        # print("input_features", self.input_features.keys())
+
         assert list(inputs.keys()) == self.input_features.keys()
 
         encoder_outputs = self.encode(inputs)

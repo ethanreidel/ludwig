@@ -6,17 +6,6 @@ from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import NAME
 from ludwig.model_export.onnx_exporter import OnnxExporter
 
-# import os
-# import tempfile
-# from typing import Any, Dict, List
-
-
-# from ludwig.types import ModelConfigDict
-# from ludwig.utils.fs_utils import open_file
-
-# import torch
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -37,13 +26,14 @@ def get_output_names(model: LudwigModel):
 
 
 @DeveloperAPI
-def export_onnx(model_path: str, export_path: str, model_name="ludwig_model"):
+def export_onnx(model_path: str, export_path: str, model_name):
     onnx_exporter = OnnxExporter()
-    model = onnx_exporter.load_model(model_path)
+    model = LudwigModel.load(model_path)
     onnx_exporter.export(
         model_path,
         export_path,
         model_name,
         config_input_names=get_input_names(model),
         config_output_names=get_output_names(model),
+        quantize=False,
     )

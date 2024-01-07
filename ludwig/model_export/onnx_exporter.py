@@ -36,19 +36,23 @@ class OnnxExporter(BaseModelExporter):
         else:
             model = LudwigTorchWrapper(ludwig_model.model)
 
-        model = LudwigTorchWrapper(ludwig_model.model)
-        # scripted_module = torch.jit.script(model)
-        # scripted_module.eval()
         model.eval()  # inference mode, is this needed.. I think onnx export does this for us
         # model.eval is needed, quote from onnx docs ->
         # It is important to call torch_model.eval() or torch_model.train(False) before exporting the model,
         # to turn the model to inference mode.
         # This is required since operators like dropout or batchnorm behave differently in inference and training mode.
 
+        default_batch_size = ludwig_model.config["trainer"]["batch_size"]
         width = ludwig_model.config["input_features"][0]["encoder"]["width"]
         height = ludwig_model.config["input_features"][0]["encoder"]["height"]
         channels = ludwig_model.config["input_features"][0]["encoder"]["num_channels"]
-        example_input = torch.randn(1, channels, width, height, requires_grad=True)
+
+        # width = ludwig_model.config["input_features"][0]["preprocessing"]["width"]
+        # height = ludwig_model.config["input_features"][0]["preprocessing"]["height"]
+        # channels = ludwig_model.config["input_features"][0]["preprocessing"]["num_channels"]
+        # example_input = torch.randn(default_batch_size, channels, width, height, requires_grad=True)
+
+        example_input = torch.randn(default_batch_size, channels, width, height, requires_grad=True)
 
         torch.onnx.export(
             model,
@@ -59,6 +63,7 @@ class OnnxExporter(BaseModelExporter):
             do_constant_folding=True,
             input_names=config_input_names,
             output_names=config_output_names,
+            verbose=False,
         )
 
     def check_model_export(self, path):
