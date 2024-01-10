@@ -381,7 +381,8 @@ def sequence_feature(output_feature=False, **kwargs):
 
 def image_feature(folder, **kwargs):
     feature = {
-        "name": f"{IMAGE}_{random_string()}",
+        # "name": f"{IMAGE}_{random_string()}",
+        "name": "image_path",  # VERY BANDAID FIX RIGHT NOW
         "type": IMAGE,
         "preprocessing": {"in_memory": True, "height": 12, "width": 12, "num_channels": 3},
         ENCODER: {
