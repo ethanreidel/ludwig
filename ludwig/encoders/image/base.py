@@ -19,11 +19,11 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 import torch
 
 from ludwig.api_annotations import DeveloperAPI
-from ludwig.constants import ENCODER_OUTPUT, IMAGE
+from ludwig.constants import ENCODER_OUTPUT, ENCODER_OUTPUT_STATE, IMAGE
 from ludwig.encoders.base import Encoder
 from ludwig.encoders.registry import register_encoder
 from ludwig.encoders.types import EncoderOutputDict
-from ludwig.modules.convolutional_modules import Conv2DStack, ResNet
+from ludwig.modules.convolutional_modules import Conv2DStack, ResNet, UNetDownStack
 from ludwig.modules.fully_connected_modules import FCStack
 from ludwig.modules.mlp_mixer_modules import MLPMixer
 from ludwig.schema.encoders.image.base import (
@@ -31,6 +31,7 @@ from ludwig.schema.encoders.image.base import (
     MLPMixerConfig,
     ResNetConfig,
     Stacked2DCNNConfig,
+    UNetEncoderConfig,
     ViTConfig,
 )
 from ludwig.utils.torch_utils import FreezeModule
@@ -381,24 +382,35 @@ class ViTEncoder(ImageEncoder):
             raise ValueError("img_height and img_width should be identical.")
         self._input_shape = (in_channels, img_height, img_width)
 
+        config_dict: dict
         if use_pretrained and not saved_weights_in_checkpoint:
-            transformer = ViTModel.from_pretrained(pretrained_model)
+            config_dict = {
+                "pretrained_model_name_or_path": pretrained_model,
+            }
+            if output_attentions:
+                config_dict["attn_implementation"] = "eager"
+
+            transformer = ViTModel.from_pretrained(**config_dict)
         else:
-            config = ViTConfig(
-                image_size=img_height,
-                num_channels=in_channels,
-                patch_size=patch_size,
-                hidden_size=hidden_size,
-                num_hidden_layers=num_hidden_layers,
-                num_attention_heads=num_attention_heads,
-                intermediate_size=intermediate_size,
-                hidden_act=hidden_act,
-                hidden_dropout_prob=hidden_dropout_prob,
-                attention_probs_dropout_prob=attention_probs_dropout_prob,
-                initializer_range=initializer_range,
-                layer_norm_eps=layer_norm_eps,
-                gradient_checkpointing=gradient_checkpointing,
-            )
+            config_dict = {
+                "image_size": img_height,
+                "num_channels": in_channels,
+                "patch_size": patch_size,
+                "hidden_size": hidden_size,
+                "num_hidden_layers": num_hidden_layers,
+                "num_attention_heads": num_attention_heads,
+                "intermediate_size": intermediate_size,
+                "hidden_act": hidden_act,
+                "hidden_dropout_prob": hidden_dropout_prob,
+                "attention_probs_dropout_prob": attention_probs_dropout_prob,
+                "initializer_range": initializer_range,
+                "layer_norm_eps": layer_norm_eps,
+                "gradient_checkpointing": gradient_checkpointing,
+            }
+            if output_attentions:
+                config_dict["attn_implementation"] = "eager"
+
+            config = ViTConfig(**config_dict)
             transformer = ViTModel(config)
 
         self.transformer = FreezeModule(transformer, frozen=not trainable)
@@ -424,3 +436,46 @@ class ViTEncoder(ImageEncoder):
     @property
     def output_shape(self) -> torch.Size:
         return torch.Size(self._output_shape)
+
+
+@DeveloperAPI
+@register_encoder("unet", IMAGE)
+class UNetEncoder(ImageEncoder):
+    def __init__(
+        self,
+        height: int,
+        width: int,
+        num_channels: int = 3,
+        conv_norm: Optional[str] = None,
+        encoder_config=None,
+        **kwargs,
+    ):
+        super().__init__()
+        self.config = encoder_config
+
+        logger.debug(f" {self.name}")
+        if height % 16 or width % 16:
+            raise ValueError(f"Invalid `height` {height} or `width` {width} for unet encoder")
+
+        self.unet = UNetDownStack(
+            img_height=height,
+            img_width=width,
+            in_channels=num_channels,
+            norm=conv_norm,
+        )
+
+    def forward(self, inputs: torch.Tensor) -> EncoderOutputDict:
+        hidden, skips = self.unet(inputs)
+        return {ENCODER_OUTPUT: hidden, ENCODER_OUTPUT_STATE: skips}
+
+    @staticmethod
+    def get_schema_cls() -> Type[ImageEncoderConfig]:
+        return UNetEncoderConfig
+
+    @property
+    def output_shape(self) -> torch.Size:
+        return self.unet.output_shape
+
+    @property
+    def input_shape(self) -> torch.Size:
+        return self.unet.input_shape

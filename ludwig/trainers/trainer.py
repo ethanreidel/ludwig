@@ -28,16 +28,29 @@ import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
+import packaging
 import pandas as pd
 import psutil
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from ludwig.constants import AUTO, LOSS, MAX_CPU_BATCH_SIZE, MINIMIZE, MODEL_ECD, TEST, TRAINING, VALIDATION
+from ludwig.constants import (
+    AUTO,
+    LOSS,
+    MAX_CPU_BATCH_SIZE,
+    MINIMIZE,
+    MODEL_ECD,
+    MODEL_LLM,
+    TEST,
+    TRAINING,
+    USED_TOKENS,
+    VALIDATION,
+)
 from ludwig.data.dataset.base import Dataset
 from ludwig.distributed.base import DistributedStrategy, LocalStrategy
 from ludwig.globals import (
     is_progressbar_disabled,
+    MODEL_FILE_NAME,
     MODEL_HYPERPARAMETERS_FILE_NAME,
     TRAINING_CHECKPOINTS_DIR_PATH,
     TRAINING_PROGRESS_TRACKER_FILE_NAME,
@@ -57,6 +70,7 @@ from ludwig.types import ModelConfigDict
 from ludwig.utils import time_utils
 from ludwig.utils.batch_size_tuner import BatchSizeEvaluator
 from ludwig.utils.checkpoint_utils import Checkpoint, CheckpointManager
+from ludwig.utils.config_utils import get_quantization
 from ludwig.utils.data_utils import load_json
 from ludwig.utils.defaults import default_random_seed
 from ludwig.utils.fs_utils import path_exists
@@ -78,6 +92,9 @@ from ludwig.utils.trainer_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+_TORCH210 = packaging.version.parse(torch.__version__) >= packaging.version.parse("2.1.0")
 
 
 @register_trainer(MODEL_ECD, default=True)
@@ -248,7 +265,16 @@ class Trainer(BaseTrainer):
             ):
                 logger.warning("Gradient checkpointing is not supported by this model. Skipping...")
             elif hasattr(self.compiled_model.model, "gradient_checkpointing_enable"):
-                self.compiled_model.model.gradient_checkpointing_enable()
+                if _TORCH210:
+                    # https://pytorch.org/docs/stable/checkpoint.html
+                    # https://github.com/huggingface/transformers/blob/02f8738ef8c674300c314d004ba436cb5aaca165/src/transformers/modeling_utils.py#L2094 # noqa: E501
+                    self.compiled_model.model.gradient_checkpointing_enable(
+                        gradient_checkpointing_kwargs={"use_reentrant": True}
+                    )
+                else:
+                    self.compiled_model.model.gradient_checkpointing_enable()
+                # `use_cache=True` is incompatible with gradient checkpointing.
+                self.compiled_model.model.config.use_cache = False
                 self.compiled_model.model.enable_input_require_grads()
                 logger.info("Gradient checkpointing enabled for training.")
             else:
@@ -269,7 +295,7 @@ class Trainer(BaseTrainer):
         targets: Dict[str, torch.Tensor],
         should_step: bool = True,
         profiler: Optional[torch.profiler.profile] = None,
-    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor]:
         """Performs a single training step.
 
         Params:
@@ -278,7 +304,10 @@ class Trainer(BaseTrainer):
             should_step: Whether to perform a step of the optimizer after computing gradients.
 
         Returns:
-            A tuple of the loss tensor and a dictionary of loss for every output feature.
+            A tuple of:
+                1. loss tensor
+                2. dictionary of loss for every output feature.
+                3. tokens usage tensor
         """
         if isinstance(self.optimizer, torch.optim.LBFGS):
             # NOTE: Horovod is not supported for L-BFGS.
@@ -309,7 +338,7 @@ class Trainer(BaseTrainer):
                 predictions = self.model.outputs_to_predictions(model_outputs)
                 self.model.update_metrics(targets, predictions)
 
-            return loss, all_losses
+            return loss, all_losses, model_outputs[USED_TOKENS]
 
         with torch.cuda.amp.autocast() if self.use_amp else contextlib.nullcontext():
             with self.distributed.prepare_model_update(self.dist_model, should_step=should_step):
@@ -320,6 +349,8 @@ class Trainer(BaseTrainer):
                 )
                 loss = loss / self.gradient_accumulation_steps
 
+        used_tokens = model_outputs[USED_TOKENS]
+
         # Begin the backward pass
         variables = self.dist_model.parameters()
         if self.use_amp:
@@ -329,7 +360,7 @@ class Trainer(BaseTrainer):
 
         if not should_step:
             # Short-circuit the parameter updates if we are still accumulating gradients
-            return loss, all_losses
+            return loss, all_losses, used_tokens
 
         # Wait for gradient aggregation to complete before clipping the gradients
         # When using AMP, we need to do this before unscaling.
@@ -369,7 +400,7 @@ class Trainer(BaseTrainer):
         if profiler:
             profiler.step()
 
-        return loss, all_losses
+        return loss, all_losses, used_tokens
 
     def clip_grads(self, variables):
         """Applies gradient clipping."""
@@ -399,9 +430,15 @@ class Trainer(BaseTrainer):
         summary_writer.flush()
 
     @classmethod
-    def write_step_summary(cls, train_summary_writer, combined_loss, all_losses, step, learning_rate=None):
+    def write_step_summary(
+        cls, train_summary_writer, combined_loss, all_losses, step, used_tokens, total_tokens_used, learning_rate=None
+    ):
         if not train_summary_writer:
             return
+
+        # token information.
+        train_summary_writer.add_scalar("tokens/tokens", used_tokens, global_step=step)
+        train_summary_writer.add_scalar("tokens/total_tokens_used", total_tokens_used, global_step=step)
 
         # combined loss
         train_summary_writer.add_scalar("combined/step_training_loss", combined_loss, global_step=step)
@@ -524,6 +561,7 @@ class Trainer(BaseTrainer):
         snapshot_weights: bool = True,
         on_best_batch_size_updated: Optional[Callable[[int, float, int], None]] = None,
         tune_for_training: bool = True,
+        global_max_sequence_length: Optional[int] = None,
     ) -> int:
         logger.info("Tuning batch size...")
         skip_save_model = self.skip_save_model
@@ -564,7 +602,7 @@ class Trainer(BaseTrainer):
                 checkpoint.save(os.path.join(tmpdir, "latest.ckpt"), global_step=0)
             try:
                 best_batch_size = evaluator.select_best_batch_size(
-                    len(training_set), max_batch_size, max_trials, self.is_coordinator()
+                    len(training_set), max_batch_size, max_trials, self.is_coordinator(), global_max_sequence_length
                 )
                 best_batch_size = self.distributed.broadcast_object(best_batch_size)
 
@@ -598,7 +636,7 @@ class Trainer(BaseTrainer):
                 trainer.model.reset_metrics()
                 trainer.optimizer.zero_grad()
 
-            def step(self, batch_size: int):
+            def step(self, batch_size: int, global_max_sequence_length: Optional[int] = None):
                 trainer.distributed.set_batch_size(trainer.dist_model, batch_size)
                 inputs = {
                     input_feature_name: input_feature.create_sample_input(batch_size=batch_size).to(trainer.device)
@@ -620,7 +658,7 @@ class Trainer(BaseTrainer):
                 trainer.model.reset_metrics()
                 trainer.optimizer.zero_grad()
 
-            def step(self, batch_size: int):
+            def step(self, batch_size: int, global_max_sequence_length: Optional[int] = None):
                 trainer.distributed.set_batch_size(trainer.dist_model, batch_size)
                 inputs = {
                     input_feature_name: input_feature.create_sample_input(batch_size=batch_size).to(trainer.device)
@@ -706,7 +744,7 @@ class Trainer(BaseTrainer):
             os.makedirs(dict_save_dir, exist_ok=True)
             dict_save_path = os.path.join(dict_save_dir, f"{progress_tracker.checkpoint_number}.csv")
             llm_eval_examples = pd.DataFrame(llm_eval_examples).to_dict(orient="records")
-            with open(dict_save_path, "w") as outfile:
+            with open(dict_save_path, "w", encoding="utf-8") as outfile:
                 writer = csv.DictWriter(outfile, fieldnames=["inputs", "targets", "outputs"])
                 writer.writeheader()
                 writer.writerows(llm_eval_examples)
@@ -779,12 +817,28 @@ class Trainer(BaseTrainer):
 
         return should_break
 
+    def save_checkpoint(self, progress_tracker: ProgressTracker, save_path: str, checkpoint_manager: CheckpointManager):
+        """Checkpoints the model, progress tracker, and invokes the checkpoint callback."""
+        progress_tracker.increment_checkpoint()
+
+        checkpoint_manager.save(progress_tracker.steps)
+        if self.is_coordinator():
+            progress_tracker.save(os.path.join(save_path, TRAINING_PROGRESS_TRACKER_FILE_NAME))
+
+        # Callback that the checkpoint was reached, regardless of whether the model was evaluated.
+        self.callback(lambda c: c.on_checkpoint(self, progress_tracker))
+
+    def create_checkpoint_handle(self):
+        return self.distributed.create_checkpoint_handle(
+            dist_model=self.dist_model, model=self.model, optimizer=self.optimizer, scheduler=self.scheduler
+        )
+
     def train(
         self,
         training_set,
         validation_set=None,
         test_set=None,
-        save_path="model",
+        save_path=MODEL_FILE_NAME,
         return_state_dict: bool = False,
         **kwargs,
     ):
@@ -831,9 +885,7 @@ class Trainer(BaseTrainer):
         )
 
         # ====== Setup session =======
-        checkpoint = self.distributed.create_checkpoint_handle(
-            dist_model=self.dist_model, model=self.model, optimizer=self.optimizer, scheduler=self.scheduler
-        )
+        checkpoint = self.create_checkpoint_handle()
         checkpoint_manager = CheckpointManager(checkpoint, training_checkpoints_path, device=self.device)
 
         # ====== Setup Tensorboard writers =======
@@ -1035,14 +1087,7 @@ class Trainer(BaseTrainer):
                         break
 
                     if not self.skip_save_progress:
-                        progress_tracker.checkpoint_number += 1
-
-                        checkpoint_manager.save(progress_tracker.steps)
-                        if self.is_coordinator():
-                            progress_tracker.save(os.path.join(save_path, TRAINING_PROGRESS_TRACKER_FILE_NAME))
-
-                        # Callback that the checkpoint was reached, regardless of whether the model was evaluated.
-                        self.callback(lambda c: c.on_checkpoint(self, progress_tracker))
+                        self.save_checkpoint(progress_tracker, save_path, checkpoint_manager)
 
                     if not self.skip_save_model and self.skip_all_evaluation:
                         # All evaluation was skipped, so save the current step as the best so far.
@@ -1100,19 +1145,19 @@ class Trainer(BaseTrainer):
 
                     # For a full explanation of this 8-bit workaround, see https://github.com/ludwig-ai/ludwig/pull/3606
                     # TODO (jeffkinnison): Determine why `SCB` and `CB` are deleted from parameter state
-                    if (
-                        hasattr(self.model.config_obj, "quantization")
-                        and self.model.config_obj.quantization
-                        and self.model.config_obj.quantization.bits == 8
-                    ):
+                    quantization = get_quantization(self.model.config_obj)
+                    uses_quantization = bool(quantization) if not isinstance(quantization, list) else any(quantization)
+                    if uses_quantization and 8 in quantization:
                         # If the model was previously placed on GPU, 8-bit parameter state will be updated with several
                         # matrices containing quantization information. These are recorded matrices are recorded in the
                         # training checkpoint state dicts, but do not necessarily exist in the parameter object, leading
                         # to a RuntimeError in `load_state_dict`. Explicitly call `model.cuda()` to make sure the
                         # matrices are part of model state. This workaround is necessary because the matrices are
                         # deleted during the model's forward pass.
-                        if self.model.model.device.type == "cuda":
+                        if self.model.config_obj.model_type == MODEL_LLM and self.model.model.device.type == "cuda":
                             self.model.model.cuda()
+                        elif self.model.config_obj.model_type == MODEL_ECD and self.model.device.type == "cuda":
+                            self.model.cuda()
                         _, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
                         only_weights_format_keys = ["weights_format" in k for k in unexpected_keys]
 
@@ -1205,10 +1250,13 @@ class Trainer(BaseTrainer):
                 for o_feat in self.model.output_features.values()
             }
 
-            loss, all_losses = self.train_step(inputs, targets, should_step=should_step, profiler=profiler)
+            loss, all_losses, used_tokens = self.train_step(inputs, targets, should_step=should_step, profiler=profiler)
 
             # Update LR schduler here instead of train loop to avoid updating during batch size tuning, etc.
             self.scheduler.step()
+
+            # Update progress tracker with token information.
+            progress_tracker.set_token_usage_for_this_step(used_tokens)
 
             if self.is_coordinator() and not self.skip_save_log:
                 self.write_step_summary(
@@ -1216,6 +1264,8 @@ class Trainer(BaseTrainer):
                     combined_loss=loss.detach().float(),
                     all_losses=all_losses,
                     step=progress_tracker.steps,
+                    used_tokens=used_tokens,
+                    total_tokens_used=progress_tracker.total_tokens_used,
                     learning_rate=progress_tracker.learning_rate,
                 )
 
@@ -1224,9 +1274,9 @@ class Trainer(BaseTrainer):
             progress_bar.update(1)
             if self.is_coordinator():
                 logger.debug(
-                    f"training: completed batch {progress_bar.total_steps} "
-                    f"memory used: "
-                    f"{psutil.Process(os.getpid()).memory_info()[0] / 1e6:0.2f}MB"
+                    "training: completed batch %s memory used: %.2fMB",
+                    progress_bar.total_steps,
+                    psutil.Process(os.getpid()).memory_info()[0] / 1e6,
                 )
 
             # Executing `on_batch_end` calls before `run_evaluation` enables more accurate
@@ -1277,14 +1327,7 @@ class Trainer(BaseTrainer):
                 # this should not make a difference, except in the unlikely event an error occurs during eval and we
                 # want to resume from the last checkpoint, in which case we will lose slightly more progress this way.
                 if not self.skip_save_progress:
-                    # This saves the latest checkpoint, which is the same as the current step.
-                    progress_tracker.checkpoint_number += 1
-                    checkpoint_manager.save(progress_tracker.steps)
-                    if self.is_coordinator():
-                        progress_tracker.save(os.path.join(save_path, TRAINING_PROGRESS_TRACKER_FILE_NAME))
-
-                    # Callback that the checkpoint was reached, regardless of whether the model was evaluated or not.
-                    self.callback(lambda c: c.on_checkpoint(self, progress_tracker))
+                    self.save_checkpoint(progress_tracker, save_path, checkpoint_manager)
 
             # If this was the last batch, then increment the epoch counter and invoke the `on_epoch_end` callback.
             if batcher.last_batch():

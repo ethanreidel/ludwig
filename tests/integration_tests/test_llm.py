@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import pathlib
 from typing import Any
@@ -9,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
+import yaml
 
 import ludwig.error as ludwig_error
 from ludwig.api import LudwigModel
@@ -19,6 +21,7 @@ from ludwig.constants import (
     BATCH_SIZE,
     COMBINER,
     EPOCHS,
+    EVAL_BATCH_SIZE,
     GENERATION,
     INPUT_FEATURES,
     MERGE_ADAPTER_INTO_BASE_MODEL,
@@ -36,6 +39,7 @@ from ludwig.constants import (
     TRAINER,
     TYPE,
 )
+from ludwig.globals import MODEL_FILE_NAME, MODEL_WEIGHTS_FILE_NAME
 from ludwig.models.llm import LLM
 from ludwig.schema.model_types.base import ModelConfig
 from ludwig.utils.fs_utils import list_file_names_in_directory
@@ -348,9 +352,11 @@ def _prepare_finetuning_test(
         BASE_MODEL: model_name,
         INPUT_FEATURES: input_features,
         OUTPUT_FEATURES: output_features,
+        GENERATION: {"max_new_tokens": 64},
         TRAINER: {
             TYPE: "finetune",
-            BATCH_SIZE: 8,
+            BATCH_SIZE: "auto",
+            EVAL_BATCH_SIZE: "auto",
             EPOCHS: 2,
         },
         BACKEND: backend,
@@ -501,6 +507,21 @@ def _verify_lm_lora_finetuning_layers(
         ),
         pytest.param(
             "lora",
+            {"use_rslora": True},
+            id="lora-rslora-enabled",
+        ),
+        pytest.param(
+            "lora",
+            {"use_dora": True},
+            id="lora-dora-enabled",
+        ),
+        pytest.param(
+            "lora",
+            {"use_rslora": True, "use_dora": True},
+            id="lora-rslora-and-dora-enabled",
+        ),
+        pytest.param(
+            "lora",
             {POSTPROCESSOR: {MERGE_ADAPTER_INTO_BASE_MODEL: True, PROGRESSBAR: True}},
             id="lora_merged",
         ),
@@ -529,16 +550,20 @@ def _verify_lm_lora_finetuning_layers(
             {POSTPROCESSOR: {MERGE_ADAPTER_INTO_BASE_MODEL: False}},
             id="adalora_not_merged",
         ),
-        pytest.param(
-            "adaption_prompt",
-            {},
-            id="adaption_prompt-defaults",
-        ),
-        pytest.param(
-            "adaption_prompt",
-            {"adapter_len": 6, "adapter_layers": 1},
-            id="adaption_prompt-modified-defaults",
-        ),
+        # TODO: <Alex>02/21/2024: Disabling AdaptionPrompt (waiting for PEFT release to fix
+        # "TypeError: LlamaRotaryEmbedding.forward() missing 1 required positional argument: 'position_ids')"
+        # (this is reflected in https://github.com/ludwig-ai/ludwig/issues/3938).
+        # </Alex>
+        # pytest.param(
+        #     "adaption_prompt",
+        #     {},
+        #     id="adaption_prompt-defaults",
+        # ),
+        # pytest.param(
+        #     "adaption_prompt",
+        #     {"adapter_len": 6, "adapter_layers": 1},
+        #     id="adaption_prompt-modified-defaults",
+        # ),
         pytest.param(
             "ia3",
             {},
@@ -589,7 +614,7 @@ def test_llm_finetuning_strategies(tmpdir, csv_filename, backend, finetune_strat
     train_df, prediction_df, config = _prepare_finetuning_test(csv_filename, finetune_strategy, backend, adapter_args)
 
     output_directory: str = str(tmpdir)
-    model_directory: str = pathlib.Path(output_directory) / "api_experiment_run" / "model"
+    model_directory: str = pathlib.Path(output_directory) / "api_experiment_run" / MODEL_FILE_NAME
 
     model = LudwigModel(config)
     model.train(dataset=train_df, output_directory=output_directory, skip_save_processed_input=False)
@@ -641,7 +666,7 @@ def test_llm_finetuning_strategies_quantized(tmpdir, csv_filename, finetune_stra
     model.train(dataset=train_df, output_directory=str(tmpdir), skip_save_processed_input=False)
 
     # Make sure we can load the saved model and then use it for predictions
-    model = LudwigModel.load(os.path.join(str(tmpdir), "api_experiment_run", "model"))
+    model = LudwigModel.load(os.path.join(str(tmpdir), "api_experiment_run", MODEL_FILE_NAME))
 
     base_model = LLM(ModelConfig.from_dict(config))
     assert not _compare_models(base_model, model.model)  # noqa F821
@@ -664,7 +689,7 @@ def test_llm_finetuning_strategies_quantized(tmpdir, csv_filename, finetune_stra
             {"bits": 4},
             (
                 ImportError,
-                "Using `load_in_8bit=True` requires Accelerate: `pip install accelerate` and the latest version of bitsandbytes `pip install -i https://test.pypi.org/simple/ bitsandbytes` or pip install bitsandbytes` ",  # noqa E501
+                "Using `load_in_8bit=True` requires Accelerate: `pip install accelerate` and the latest version of bitsandbytes `pip install -i https://test.pypi.org/simple/ bitsandbytes` or pip install bitsandbytes` ",  # noqa: E501
             ),
             id="qlora-4bit-not-merged",
         ),
@@ -674,7 +699,7 @@ def test_llm_finetuning_strategies_quantized(tmpdir, csv_filename, finetune_stra
             {"bits": 8},
             (
                 ImportError,
-                "Using `load_in_8bit=True` requires Accelerate: `pip install accelerate` and the latest version of bitsandbytes `pip install -i https://test.pypi.org/simple/ bitsandbytes` or pip install bitsandbytes` ",  # noqa E501
+                "Using `load_in_8bit=True` requires Accelerate: `pip install accelerate` and the latest version of bitsandbytes `pip install -i https://test.pypi.org/simple/ bitsandbytes` or pip install bitsandbytes` ",  # noqa: E501
             ),
             id="qlora-8bit-merged",
         ),
@@ -869,8 +894,10 @@ def test_llm_lora_finetuning_merge_and_unload(
     )
 
     output_directory: str = str(tmpdir)
-    model_directory: str = pathlib.Path(output_directory) / "api_experiment_run" / "model"
-    model_weights_directory: str = pathlib.Path(output_directory) / "api_experiment_run" / "model" / "model_weights"
+    model_directory: str = pathlib.Path(output_directory) / "api_experiment_run" / MODEL_FILE_NAME
+    model_weights_directory: str = (
+        pathlib.Path(output_directory) / "api_experiment_run" / MODEL_FILE_NAME / MODEL_WEIGHTS_FILE_NAME
+    )
 
     model = LudwigModel(config)
     model.train(dataset=train_df, output_directory=output_directory, skip_save_processed_input=False)
@@ -1014,7 +1041,18 @@ def test_default_max_sequence_length():
 
 
 @pytest.mark.llm
-@pytest.mark.parametrize("adapter", ["lora", "adalora", "adaption_prompt"])
+@pytest.mark.parametrize(
+    "adapter",
+    [
+        "lora",
+        "adalora",
+        # TODO: <Alex>02/21/2024: Disabling AdaptionPrompt (waiting for PEFT release to fix
+        # "TypeError: LlamaRotaryEmbedding.forward() missing 1 required positional argument: 'position_ids')"
+        # (this is reflected in https://github.com/ludwig-ai/ludwig/issues/3938).
+        # </Alex>
+        # "adaption_prompt",
+    ],
+)
 def test_load_pretrained_adapter_weights(adapter):
     from peft import PeftModel
     from transformers import PreTrainedModel
@@ -1181,7 +1219,7 @@ def test_llm_finetuning_with_embedding_noise(
         assert model.config_obj.model_parameters.neftune_noise_alpha == embedding_noise
 
     output_directory: str = str(tmpdir)
-    model_directory: str = pathlib.Path(output_directory) / "api_experiment_run" / "model"
+    model_directory: str = pathlib.Path(output_directory) / "api_experiment_run" / MODEL_FILE_NAME
     model.train(dataset=train_df, output_directory=output_directory, skip_save_processed_input=False)
 
     # Make sure we can load the saved model and then use it for predictions
@@ -1208,12 +1246,22 @@ def llm_encoder_config() -> dict[str, Any]:
 
 @pytest.mark.parametrize(
     "adapter,quantization",
-    [(None, None), ("lora", None), ("lora", {"bits": 4}), ("lora", {"bits": 8})],
-    ids=["FFT", "LoRA", "LoRA 4-bit", "LoRA 8-bit"],
+    [
+        (None, None),
+        ("lora", None),
+        ("lora", {"bits": 4}),
+        ("lora", {"bits": 8}),
+        ("adalora", None),
+        ("adalora", {"bits": 4}),
+        ("adalora", {"bits": 8}),
+    ],
+    ids=["FFT", "LoRA", "LoRA 4-bit", "LoRA 8-bit", "AdaLoRA", "AdaLoRA 4-bit", "AdaLoRA 8-bit"],
 )
 def test_llm_encoding(llm_encoder_config, adapter, quantization, tmpdir):
     if (
-        _finetune_strategy_requires_cuda(finetune_strategy_name=adapter, quantization_args=quantization)
+        _finetune_strategy_requires_cuda(
+            finetune_strategy_name="lora" if adapter else None, quantization_args=quantization
+        )
         and not (torch.cuda.is_available() and torch.cuda.device_count()) > 0
     ):
         pytest.skip("Skip: quantization requires GPU and none are available.")
@@ -1241,3 +1289,94 @@ def test_llm_encoding(llm_encoder_config, adapter, quantization, tmpdir):
 
     model = LudwigModel(config)
     model.train(dataset=dataset_path, output_directory=str(tmpdir))
+
+
+def test_llm_batch_size_tuning():
+    dataset = pd.DataFrame({"instruction": ["a"] * 100, "output": ["a"] * 100})
+    config = yaml.safe_load(
+        """
+    model_type: llm
+    input_features:
+        - name: instruction
+          type: text
+    output_features:
+        - name: output
+          type: text
+    prompt:
+        template: >-
+            {instruction}
+    adapter:
+        type: lora
+    trainer:
+        type: finetune
+        optimizer:
+            type: adam
+        batch_size: auto
+        train_steps: 1
+        learning_rate: 0.0002
+        eval_batch_size: 2
+    backend:
+        type: local
+    base_model: HuggingFaceH4/tiny-random-LlamaForCausalLM
+        """
+    )
+    model = LudwigModel(config=config)
+    model.train(dataset=dataset)
+    assert model.config_obj.trainer.batch_size > 1
+
+
+@pytest.mark.llm
+def test_llm_used_tokens(tmpdir):
+    input_features = [text_feature(name="input", encoder={"type": "passthrough"})]
+    output_features = [text_feature(name="output")]
+
+    df = pd.read_json("https://raw.githubusercontent.com/sahil280114/codealpaca/master/data/code_alpaca_20k.json").head(
+        10
+    )
+
+    # df = generate_data(input_features, output_features, filename=csv_filename, num_examples=25)
+
+    config = {
+        MODEL_TYPE: MODEL_LLM,
+        BASE_MODEL: "hf-internal-testing/tiny-random-BartModel",
+        INPUT_FEATURES: input_features,
+        OUTPUT_FEATURES: output_features,
+        TRAINER: {
+            TYPE: "finetune",
+            BATCH_SIZE: 1,
+            EPOCHS: 3,
+            "enable_gradient_checkpointing": True,
+        },
+    }
+
+    config[ADAPTER] = {TYPE: "lora"}
+
+    model = LudwigModel(config)
+    assert model.config_obj.trainer.enable_gradient_checkpointing
+
+    model.train(dataset=df, output_directory=str(tmpdir), skip_save_processed_input=False)
+
+    with open(
+        os.path.join(str(tmpdir), "api_experiment_run", MODEL_FILE_NAME, "training_progress.json"), encoding="utf-8"
+    ) as f:
+        progress_tracker = json.load(f)
+
+    assert progress_tracker["cumulative_step_token_usage"]["11"] == progress_tracker["total_tokens_used"] == 621
+    assert progress_tracker["checkpoint_to_epoch"] == {"1": 1, "2": 1, "3": 2, "4": 2, "5": 3, "6": 3}
+    assert progress_tracker["checkpoint_to_step"] == {"1": 4, "2": 4, "3": 8, "4": 8, "5": 12, "6": 12}
+    assert progress_tracker["cumulative_checkpoint_token_usage"] == {
+        "1": 207,
+        "2": 207,
+        "3": 414,
+        "4": 414,
+        "5": 621,
+        "6": 621,
+    }
+    assert progress_tracker["incremental_checkpoint_token_usage"] == {
+        "1": 207,
+        "2": 0,
+        "3": 207,
+        "4": 0,
+        "5": 207,
+        "6": 0,
+    }
