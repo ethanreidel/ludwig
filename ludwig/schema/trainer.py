@@ -36,6 +36,7 @@ _torch_200 = parse_version(torch.__version__) >= parse_version("2.0")
 
 trainer_schema_registry = Registry()
 _llm_trainer_schema_registry = Registry()
+_lmm_trainer_schema_registry = Registry()
 
 
 @DeveloperAPI
@@ -828,6 +829,86 @@ class GBMTrainerConfig(BaseTrainerConfig):
     def can_tune_batch_size(self) -> bool:
         return False
 
+@DeveloperAPI
+@ludwig_dataclass
+class LMMTrainerConfig(BaseTrainerConfig):
+    """Base class for all LMM trainer configs."""
+
+    learning_rate: Union[float, str] = schema_utils.OneOfOptionsField(
+        default=0.0002,
+        allow_none=False,
+        description=(
+            "Controls how much to change the model in response to the estimated error each time the model weights are "
+            "updated. If 'auto', the optimal learning rate is estimated by choosing the learning rate that produces "
+            "the smallest non-diverging gradient update."
+        ),
+        parameter_metadata=TRAINER_METADATA[MODEL_ECD]["learning_rate"],
+        field_options=[
+            schema_utils.FloatRange(default=0.001, allow_none=False, min=0, max=1),
+            schema_utils.StringOptions(options=["auto"], default="auto", allow_none=False),
+        ],
+    )
+
+    batch_size: int = schema_utils.PositiveInteger(
+        default=1,
+        description="Batch size used for training in the LLM trainer.",
+    )
+
+    base_learning_rate: float = schema_utils.NonNegativeFloat(
+        default=0.0,
+        description="Base learning rate used for training in the LLM trainer.",
+    )
+
+    should_shuffle: bool = schema_utils.Boolean(
+        default=True,
+        description="Whether to shuffle the training data in the LLM trainer.",
+    )
+
+    epochs: int = schema_utils.PositiveInteger(
+        default=3,
+        description="Number of epochs to train in the LLM trainer.",
+    )
+
+    train_steps: int = schema_utils.PositiveInteger(
+        default=None,
+        allow_none=True,
+        description="Number of training steps to train in the LLM trainer.",
+    )
+
+    eval_steps: float = schema_utils.NonNegativeInteger(
+        default=None,
+        allow_none=True,
+        description="The number of steps to evaluate in the LLM trainer.",
+    )
+
+    steps_per_checkpoint: int = schema_utils.NonNegativeInteger(
+        default=0,
+        description="Number of steps per checkpoint in the LLM trainer.",
+    )
+
+    checkpoints_per_epoch: int = schema_utils.NonNegativeInteger(
+        default=0,
+        description="Number of checkpoints per epoch in the LLM trainer.",
+    )
+
+    early_stop: int = schema_utils.IntegerRange(
+        default=-1,
+        min=-1,
+        description=(
+            "Number of consecutive rounds of evaluation without any improvement on the `validation_metric` that "
+            "triggers training to stop. Can be set to -1, which disables early stopping entirely."
+        ),
+    )
+
+    eval_batch_size: int = schema_utils.PositiveInteger(
+        default=2,
+        description="Batch size used for evaluation in the LLM trainer.",
+    )
+
+    evaluate_training_set: bool = schema_utils.Boolean(
+        default=False,
+        description="Whether to evaluate the training set in the LLM trainer. Note: this operation may be slow.",
+    )
 
 @DeveloperAPI
 @ludwig_dataclass
@@ -1038,6 +1119,39 @@ def get_llm_trainer_conds():
 @DeveloperAPI
 def LLMTrainerDataclassField(default="none", description=""):
     class LLMTrainerSelection(schema_utils.TypeSelection):
+        def __init__(self):
+            super().__init__(
+                registry=_llm_trainer_schema_registry,
+                default_value=default,
+                description=description,
+            )
+
+        def get_schema_from_registry(self, key: str) -> Type[schema_utils.BaseMarshmallowConfig]:
+            return get_llm_trainer_cls(key)
+
+        def _jsonschema_type_mapping(self):
+            return {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": list(_llm_trainer_schema_registry.keys()),
+                        "default": default,
+                        "description": "The type of LLM trainer to use",
+                    },
+                },
+                "title": "llm_trainer_options",
+                "allOf": get_llm_trainer_conds(),
+                "required": ["type"],
+                "description": description,
+            }
+
+    return LLMTrainerSelection().get_default_field()
+
+
+@DeveloperAPI
+def LMMTrainerDataclassField(default="none", description=""):
+    class LMMTrainerSelection(schema_utils.TypeSelection):
         def __init__(self):
             super().__init__(
                 registry=_llm_trainer_schema_registry,
