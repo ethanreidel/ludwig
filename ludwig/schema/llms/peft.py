@@ -118,6 +118,29 @@ class LoraConfig(BaseAdapterConfig):
         parameter_metadata=LLM_METADATA["adapter"]["lora"]["target_modules"],
     )
 
+    use_rslora: bool = schema_utils.Boolean(
+        default=False,
+        description=(
+            "When set to True, uses Rank-Stabilized LoRA which sets the adapter scaling factor to "
+            "lora_alpha/math.sqrt(r), since it was proven to work better. Otherwise, it will use the original "
+            "default value of lora_alpha/r. Paper: https://arxiv.org/abs/2312.03732."
+        ),
+        parameter_metadata=LLM_METADATA["adapter"]["lora"]["use_rslora"],
+    )
+
+    use_dora: bool = schema_utils.Boolean(
+        default=False,
+        description=(
+            "Enable 'Weight-Decomposed Low-Rank Adaptation' (DoRA). This technique decomposes the updates of the "
+            "weights into two parts, magnitude and direction. Direction is handled by normal LoRA, whereas the "
+            "magnitude is handled by a separate learnable parameter. This can improve the performance of LoRA, "
+            "especially at low ranks. Right now, DoRA only supports non-quantized linear layers. DoRA introduces a "
+            "bigger overhead than pure LoRA, so it is recommended to merge weights for inference. For more "
+            "information, see https://arxiv.org/abs/2402.09353"
+        ),
+        parameter_metadata=LLM_METADATA["adapter"]["lora"]["use_dora"],
+    )
+
     def to_config(self, task_type: str = None, **kwargs) -> "PeftConfig":
         from peft import LoraConfig as _LoraConfig
 
@@ -128,6 +151,8 @@ class LoraConfig(BaseAdapterConfig):
             bias=self.bias_type,
             target_modules=self.target_modules,
             task_type=task_type,
+            use_rslora=self.use_rslora,
+            use_dora=self.use_dora,
         )
 
     @classmethod
@@ -406,7 +431,11 @@ class AdaloraConfig(LoraConfig):
 
 
 @DeveloperAPI
-@register_adapter("adaption_prompt")
+# TODO: <Alex>02/21/2024: Disabling AdaptionPrompt (waiting for PEFT release to fix
+# "TypeError: LlamaRotaryEmbedding.forward() missing 1 required positional argument: 'position_ids')"
+# (this is reflected in https://github.com/ludwig-ai/ludwig/issues/3938).
+# </Alex>
+# @register_adapter("adaption_prompt")
 @ludwig_dataclass
 class AdaptionPromptConfig(BaseAdapterConfig):
     """Adapted from https://github.com/huggingface/peft/blob/main/src/peft/tuners/adaption_prompt/config.py."""

@@ -11,9 +11,13 @@
 
 FROM rayproject/ray:2.3.1-py38
 
-# https://github.com/kubernetes/release/issues/1982
-RUN echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list && \
-	sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys B53DC80D13EDEF05
+# Fix kubernetes package repositories
+# https://kubernetes.io/blog/2023/08/15/pkgs-k8s-io-introduction/
+RUN sudo mkdir /etc/apt/keyrings
+RUN echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+RUN wget https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key
+RUN cat Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+# Done
 
 RUN sudo apt-get update && DEBIAN_FRONTEND="noninteractive" sudo apt-get install -y \
 	build-essential \
@@ -26,12 +30,13 @@ RUN sudo apt-get update && DEBIAN_FRONTEND="noninteractive" sudo apt-get install
 	rsync \
 	vim \
 	ffmpeg \
-	sox
+	sox \
+	libsox-dev
 RUN pip install -U pip
 
 WORKDIR /ludwig
 
-RUN pip install --no-cache-dir torch==2.0.0 torchtext torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch==2.1.0 torchtext torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu
 
 COPY . .
 RUN pip install --no-cache-dir '.[full]' --extra-index-url https://download.pytorch.org/whl/cpu

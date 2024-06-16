@@ -9,6 +9,7 @@ from ludwig.constants import MINIMUM_BATCH_SIZE, TEST, TRAINING, VALIDATION
 from ludwig.data.dataset.base import Dataset
 from ludwig.distributed.base import DistributedStrategy, LocalStrategy
 from ludwig.features.feature_utils import LudwigFeatureDict
+from ludwig.globals import MODEL_FILE_NAME
 from ludwig.models.llm import LLM
 from ludwig.models.predictor import LlmFineTunePredictor, LlmPredictor
 from ludwig.modules.metric_modules import get_initial_validation_value
@@ -18,6 +19,11 @@ from ludwig.trainers.registry import register_llm_ray_trainer, register_llm_trai
 from ludwig.trainers.trainer import Trainer
 from ludwig.types import ModelConfigDict
 from ludwig.utils import time_utils
+from ludwig.utils.batch_size_tuner import (
+    BatchSizeEvaluator,
+    LLMFinetunePredictBatchSizeEvaluator,
+    LLMFinetuneTrainerBatchSizeEvaluator,
+)
 from ludwig.utils.defaults import default_random_seed
 from ludwig.utils.metric_utils import TrainerMetric
 from ludwig.utils.metrics_printed_table import print_metrics_table
@@ -135,7 +141,7 @@ class NoneTrainer(BaseTrainer):
         training_set: Dataset,
         validation_set: Optional[Dataset] = None,
         test_set: Optional[Dataset] = None,
-        save_path: str = "model",
+        save_path: str = MODEL_FILE_NAME,
         return_state_dict: bool = False,
         **kwargs,
     ):
@@ -413,7 +419,7 @@ class FineTuneTrainer(Trainer):
         skip_save_log: bool = False,
         callbacks: List = None,
         report_tqdm_to_ray=False,
-        random_seed: float = default_random_seed,
+        random_seed: int = default_random_seed,
         distributed: Optional[DistributedStrategy] = None,
         device: Optional[str] = None,
         **kwargs,
@@ -470,6 +476,38 @@ class FineTuneTrainer(Trainer):
 
         progress_tracker.llm_eval_examples = llm_eval_examples
         return append_metrics(self.model, dataset_name, metrics, metrics_log, progress_tracker)
+
+    def tune_batch_size(
+        self,
+        config: ModelConfigDict,
+        training_set: Dataset,
+        random_seed: int = default_random_seed,
+        max_trials: int = 20,
+        halving_limit: int = 3,
+        snapshot_weights: bool = True,
+        on_best_batch_size_updated: Optional[Callable[[int, float, int], None]] = None,
+        tune_for_training: bool = True,
+        global_max_sequence_length: Optional[int] = None,
+    ) -> int:
+        if global_max_sequence_length is None:
+            global_max_sequence_length = self.model.global_max_sequence_length
+        return super().tune_batch_size(
+            config,
+            training_set,
+            random_seed,
+            max_trials,
+            halving_limit,
+            snapshot_weights,
+            on_best_batch_size_updated,
+            tune_for_training,
+            global_max_sequence_length,
+        )
+
+    def _create_batch_size_evaluator(self) -> BatchSizeEvaluator:
+        return LLMFinetuneTrainerBatchSizeEvaluator(self)
+
+    def _create_predict_batch_size_evaluator(self) -> BatchSizeEvaluator:
+        return LLMFinetunePredictBatchSizeEvaluator(self)
 
 
 class RemoteLLMTrainer(NoneTrainer):

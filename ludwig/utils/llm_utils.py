@@ -8,7 +8,7 @@ import torch.nn.functional as F
 import transformers
 from bitsandbytes.nn.modules import Embedding
 from packaging import version
-from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel, PreTrainedTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel, PreTrainedTokenizer, TextStreamer
 
 from ludwig.constants import IGNORE_INDEX_TOKEN_ID, LOGITS, PREDICTIONS, PROBABILITIES
 from ludwig.schema.trainer import LLMTrainerConfig
@@ -23,21 +23,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+transformers_436 = version.parse(transformers.__version__) >= version.parse("4.36.0")
 
 FALLBACK_CONTEXT_LEN = 2048
 
-transformers_436 = version.parse(transformers.__version__) >= version.parse("4.36.0")
-
-# The official microsoft phi models don't work out of the box because the weights aren't compatiable with HF
-# See https://github.com/huggingface/transformers/issues/28049 for more context.
-_PHI_BASE_MODEL_MAPPING = {
-    "microsoft/phi-1": "susnato/phi-1_dev",
-    "microsoft/phi-1.5": "susnato/phi-1_5_dev",
-    "microsoft/phi-2": "susnato/phi-2",
+_PHI_MODELS = {
+    "susnato/phi-1_dev",
+    "susnato/phi-1_5_dev",
+    "susnato/phi-2",
+    "microsoft/phi-1",
+    "microsoft/phi-1_5",
+    "microsoft/phi-2",
 }
 
-# The susnato Phi models as of Transformers 4.36.1 don't support "device_map='auto'" at model load time.
-_MODELS_WITH_DEVICE_MAP_AUTO_EXCLUSION = {"susnato/phi-1_dev", "susnato/phi-1_5_dev", "susnato/phi-2"}
+_MODELS_WITH_DEVICE_MAP_AUTO_EXCLUSION = set()
+# Phi models don't support "device_map='auto'" at model load time as of transformers 4.37.0.
+_MODELS_WITH_DEVICE_MAP_AUTO_EXCLUSION.update(_PHI_MODELS)
 
 
 @default_retry(tries=8)
@@ -470,14 +471,14 @@ def generate_merged_ids(
     merged_input_and_targets = []
     lengths = []
 
-    pad_tensor = torch.tensor([tokenizer.pad_token_id]).to(target_ids[0].device)
+    eos_tensor = torch.tensor([tokenizer.eos_token_id]).to(target_ids[0].device)
 
     # Merge input_ids and target_ids by concatenating them together.
     # We remove the left padding from both input_ids and target_ids before concatenating them.
     for input_id_sample, target_id_sample in zip(input_ids, target_ids):
         input_id_sample_no_padding = remove_left_padding(input_id_sample, tokenizer)[0]
         target_id_sample_no_padding = remove_left_padding(target_id_sample, tokenizer)[0]
-        target_id_sample_no_padding = torch.cat((target_id_sample_no_padding, pad_tensor), dim=-1)
+        target_id_sample_no_padding = torch.cat((target_id_sample_no_padding, eos_tensor), dim=-1)
 
         merged_sample_ids = torch.cat((input_id_sample_no_padding, target_id_sample_no_padding), dim=-1)
         # If the merged tensor is longer than the maximum sequence length, we truncate it.
@@ -622,3 +623,8 @@ def update_embedding_layer(model: AutoModelForCausalLM, config_obj: LLMTrainerCo
         logger.info("Updated the pretrained embedding layer to use the embedding layer from bitsandbytes.")
 
     return model
+
+
+def create_text_streamer(tokenizer: PreTrainedTokenizer) -> TextStreamer:
+    """Creates a TextStreamer object for streaming text to stdout during generation."""
+    return TextStreamer(tokenizer=tokenizer, skip_prompt=True)
