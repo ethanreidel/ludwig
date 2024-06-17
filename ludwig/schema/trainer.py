@@ -64,6 +64,11 @@ def get_llm_trainer_cls(trainer_type: str):
 
 
 @DeveloperAPI
+def get_lmm_trainer_cls(trainer_type: str):
+    return _lmm_trainer_schema_registry[trainer_type]
+
+
+@DeveloperAPI
 @ludwig_dataclass
 class BaseTrainerConfig(schema_utils.BaseMarshmallowConfig, ABC):
     """Common trainer parameter values."""
@@ -829,6 +834,7 @@ class GBMTrainerConfig(BaseTrainerConfig):
     def can_tune_batch_size(self) -> bool:
         return False
 
+
 @DeveloperAPI
 @ludwig_dataclass
 class LMMTrainerConfig(BaseTrainerConfig):
@@ -909,6 +915,7 @@ class LMMTrainerConfig(BaseTrainerConfig):
         default=False,
         description="Whether to evaluate the training set in the LLM trainer. Note: this operation may be slow.",
     )
+
 
 @DeveloperAPI
 @ludwig_dataclass
@@ -1150,17 +1157,33 @@ def LLMTrainerDataclassField(default="none", description=""):
 
 
 @DeveloperAPI
+def get_lmm_trainer_conds():
+    """Returns a JSON schema of conditionals to validate against adapter types."""
+    conds = []
+    for trainer in _lmm_trainer_schema_registry:
+        trainer_cls = _lmm_trainer_schema_registry[trainer]
+        other_props = schema_utils.unload_jsonschema_from_marshmallow_class(trainer_cls)["properties"]
+        schema_utils.remove_duplicate_fields(other_props)
+        preproc_cond = schema_utils.create_cond(
+            {"type": trainer},
+            other_props,
+        )
+        conds.append(preproc_cond)
+    return conds
+
+
+@DeveloperAPI
 def LMMTrainerDataclassField(default="none", description=""):
     class LMMTrainerSelection(schema_utils.TypeSelection):
         def __init__(self):
             super().__init__(
-                registry=_llm_trainer_schema_registry,
+                registry=_lmm_trainer_schema_registry,
                 default_value=default,
                 description=description,
             )
 
         def get_schema_from_registry(self, key: str) -> Type[schema_utils.BaseMarshmallowConfig]:
-            return get_llm_trainer_cls(key)
+            return get_lmm_trainer_cls(key)
 
         def _jsonschema_type_mapping(self):
             return {
@@ -1168,15 +1191,15 @@ def LMMTrainerDataclassField(default="none", description=""):
                 "properties": {
                     "type": {
                         "type": "string",
-                        "enum": list(_llm_trainer_schema_registry.keys()),
+                        "enum": list(_lmm_trainer_schema_registry.keys()),
                         "default": default,
-                        "description": "The type of LLM trainer to use",
+                        "description": "The type of LMM trainer to use",
                     },
                 },
-                "title": "llm_trainer_options",
-                "allOf": get_llm_trainer_conds(),
+                "title": "lmm_trainer_options",
+                "allOf": get_lmm_trainer_conds(),
                 "required": ["type"],
                 "description": description,
             }
 
-    return LLMTrainerSelection().get_default_field()
+    return LMMTrainerSelection().get_default_field()
