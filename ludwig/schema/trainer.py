@@ -15,6 +15,7 @@ from ludwig.constants import (
     MODEL_ECD,
     MODEL_GBM,
     MODEL_LLM,
+    MODEL_LMM,
     TRAINING,
 )
 from ludwig.error import ConfigValidationError
@@ -857,44 +858,44 @@ class LMMTrainerConfig(BaseTrainerConfig):
 
     batch_size: int = schema_utils.PositiveInteger(
         default=1,
-        description="Batch size used for training in the LLM trainer.",
+        description="Batch size used for training in the LMM trainer.",
     )
 
     base_learning_rate: float = schema_utils.NonNegativeFloat(
         default=0.0,
-        description="Base learning rate used for training in the LLM trainer.",
+        description="Base learning rate used for training in the LMM trainer.",
     )
 
     should_shuffle: bool = schema_utils.Boolean(
         default=True,
-        description="Whether to shuffle the training data in the LLM trainer.",
+        description="Whether to shuffle the training data in the LMM trainer.",
     )
 
     epochs: int = schema_utils.PositiveInteger(
         default=3,
-        description="Number of epochs to train in the LLM trainer.",
+        description="Number of epochs to train in the LMM trainer.",
     )
 
     train_steps: int = schema_utils.PositiveInteger(
         default=None,
         allow_none=True,
-        description="Number of training steps to train in the LLM trainer.",
+        description="Number of training steps to train in the LMM trainer.",
     )
 
     eval_steps: float = schema_utils.NonNegativeInteger(
         default=None,
         allow_none=True,
-        description="The number of steps to evaluate in the LLM trainer.",
+        description="The number of steps to evaluate in the LMM trainer.",
     )
 
     steps_per_checkpoint: int = schema_utils.NonNegativeInteger(
         default=0,
-        description="Number of steps per checkpoint in the LLM trainer.",
+        description="Number of steps per checkpoint in the LMM trainer.",
     )
 
     checkpoints_per_epoch: int = schema_utils.NonNegativeInteger(
         default=0,
-        description="Number of checkpoints per epoch in the LLM trainer.",
+        description="Number of checkpoints per epoch in the LMM trainer.",
     )
 
     early_stop: int = schema_utils.IntegerRange(
@@ -908,12 +909,12 @@ class LMMTrainerConfig(BaseTrainerConfig):
 
     eval_batch_size: int = schema_utils.PositiveInteger(
         default=2,
-        description="Batch size used for evaluation in the LLM trainer.",
+        description="Batch size used for evaluation in the LMM trainer.",
     )
 
     evaluate_training_set: bool = schema_utils.Boolean(
         default=False,
-        description="Whether to evaluate the training set in the LLM trainer. Note: this operation may be slow.",
+        description="Whether to evaluate the training set in the LMM trainer. Note: this operation may be slow.",
     )
 
 
@@ -1065,6 +1066,8 @@ def get_model_type_jsonschema(model_type: str = MODEL_ECD):
         enum = [MODEL_GBM]
     elif model_type == MODEL_LLM:
         enum = [MODEL_LLM]
+    elif model_type == MODEL_LMM:
+        enum = [MODEL_LMM]
 
     return {
         "type": "string",
