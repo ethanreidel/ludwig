@@ -517,6 +517,7 @@ class LMM(BaseModel):
 
         return train_loss, of_train_losses
 
+    #fine for LMMs
     def eval_loss(self, targets, predictions):
         """Computes all evaluation losses for the model given targets and predictions.
 
@@ -548,6 +549,7 @@ class LMM(BaseModel):
 
         return eval_loss, additional_loss
 
+    #fine for LMMs
     def outputs_to_predictions(self, outputs: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, torch.Tensor]]:
         """Returns the model's predictions for each output feature."""
         predictions = {}
@@ -556,6 +558,8 @@ class LMM(BaseModel):
             predictions[of_name] = outputs
         return predictions
 
+
+    #fine for LMMs
     def save(self, save_path):
         """Saves the model to the given path."""
         # TODO(travis): use the implementation of trainer itself to decide whether to save the model, to
@@ -568,6 +572,8 @@ class LMM(BaseModel):
         else:
             logger.info("Skipped saving LLM without weight adjustments.")
 
+
+    #fine for LMMs
     def save_base_model(self, save_path):
         """Saves the base LLM model to the given path."""
         # TODO: see the "TODO" statement from "LLM.save()" in this module.
