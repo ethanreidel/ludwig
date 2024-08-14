@@ -21,6 +21,7 @@ from ludwig.schema.model_types.base import ModelConfig, register_model_type
 from ludwig.schema.preprocessing import PreprocessingConfig, PreprocessingField
 from ludwig.schema.trainer import LLMTrainerConfig, LLMTrainerDataclassField, LMMTrainerConfig, LMMTrainerDataclassField
 from ludwig.schema.utils import ludwig_dataclass
+from ludwig.schema.lmms.base_lmm_model import BaseLMMModelDataclassField
 
 
 @DeveloperAPI
@@ -31,7 +32,7 @@ class LMMModelConfig(ModelConfig):
 
     model_type: str = schema_utils.ProtectedString("lmm")
 
-    base_model: str = BaseModelDataclassField()
+    base_model: str = BaseLMMModelDataclassField()
 
     input_features: FeatureCollection[BaseInputFeatureConfig] = LMMInputFeatureSelection().get_list_field()
     output_features: FeatureCollection[BaseOutputFeatureConfig] = LMMOutputFeatureSelection().get_list_field()

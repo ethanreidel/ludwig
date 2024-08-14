@@ -8,7 +8,7 @@ import torch
 from transformers import AutoConfig, GenerationConfig
 
 from ludwig.accounting.used_tokens import get_used_tokens_for_llm
-from ludwig.constants import IGNORE_INDEX_TOKEN_ID, LOGITS, MODEL_LLM, PREDICTIONS, TEXT, USED_TOKENS
+from ludwig.constants import IGNORE_INDEX_TOKEN_ID, LOGITS, MODEL_LLM, PREDICTIONS, TEXT, USED_TOKENS, MODEL_LMM
 from ludwig.features.base_feature import ModuleWrapper, OutputFeature
 from ludwig.features.feature_utils import LudwigFeatureDict
 from ludwig.features.text_feature import TextOutputFeature
@@ -35,6 +35,13 @@ from ludwig.utils.logging_utils import log_once
 from ludwig.utils.output_feature_utils import set_output_feature_tensor
 from ludwig.utils.tokenizers import HFTokenizer
 from ludwig.utils.torch_utils import reg_loss
+
+#LMM imports here
+from ludwig.schema.model_types.lmm import LMMModelConfig
+from ludwig.utils.lmm_utils import load_pretrained_from_config
+
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -80,11 +87,11 @@ class DictWrapper:
 class LMM(BaseModel):
     @staticmethod
     def type() -> str:
-        return MODEL_LLM
+        return MODEL_LMM
 
     def __init__(
         self,
-        config_obj: LLMModelConfig,
+        config_obj: LMMModelConfig,
         random_seed=None,
         _device=None,
         **_kwargs,
