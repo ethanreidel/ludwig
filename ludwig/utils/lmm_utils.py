@@ -24,6 +24,23 @@ def load_pretrained_from_config(
 ) -> PreTrainedModel:
     load_kwargs = {}
 
+    #deal with quantization later here:
 
     
+    
+
+
+
+
+
+    return
+
+def to_device(
+        model: PreTrainedModel,
+        device: Union[str, torch.DeviceObjType],
+        config_obj: "LMMModelConfig", # noqa F821,
+        curr_device: torch.DeviceObjType
+) -> Tuple[PreTrainedModel, torch.DeviceObjType]:
+    #add 
+
     return
