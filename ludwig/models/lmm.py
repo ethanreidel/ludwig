@@ -26,7 +26,6 @@ from ludwig.utils.llm_utils import (
     get_context_len,
     get_realigned_target_and_prediction_tensors_for_inference,
     initialize_adapter,
-    load_pretrained_from_config,
     pad_target_tensor_for_fine_tuning,
     remove_left_padding,
     to_device,
@@ -102,6 +101,9 @@ class LMM(BaseModel):
         self._random_seed = random_seed
 
         self.model_name = self.config_obj.base_model
+        #need to load vision tower, connector, llm 
+
+
         self.model_config = AutoConfig.from_pretrained(self.config_obj.base_model)
 
         self.model = load_pretrained_from_config(self.config_obj, model_config=self.model_config)

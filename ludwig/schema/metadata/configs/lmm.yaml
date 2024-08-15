@@ -11,3 +11,11 @@ base_model:
     expected_impact: 3
     ui_component_type: radio_string_combined
     short_description: This can be one of the presets or a fully qualified name of a pretrained model from the HuggingFace Hub
+#TODO -> Fill these out and update language_model, projector, and vision_tower.py files under lmms.
+#similar to base_lmm_model/base_llm_model
+vision_tower:
+
+projector:
+
+language_model:
+

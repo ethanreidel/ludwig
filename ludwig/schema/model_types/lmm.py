@@ -33,6 +33,7 @@ class LMMModelConfig(ModelConfig):
     model_type: str = schema_utils.ProtectedString("lmm")
 
     base_model: str = BaseLMMModelDataclassField()
+    #add vision_tower, projector, language_model dataclass fields here
 
     input_features: FeatureCollection[BaseInputFeatureConfig] = LMMInputFeatureSelection().get_list_field()
     output_features: FeatureCollection[BaseOutputFeatureConfig] = LMMOutputFeatureSelection().get_list_field()

@@ -7,7 +7,7 @@ from packaging import version
 import transformers
 import torch
 import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig, BitsAndBytesConfig, LlavaForConditionalGeneration
 
 if TYPE_CHECKING:
     from ludwig.schema.model_types.lmm import LMMModelConfig
@@ -24,16 +24,21 @@ def load_pretrained_from_config(
 ) -> PreTrainedModel:
     load_kwargs = {}
 
+    #placeholder until lmms/language_model,vision_tower,projector built out
+    if config_obj.vision_tower:
+        load_kwargs["vision_tower"] = config_obj.vision_tower
+    if config_obj.projector:
+        load_kwargs["projector"] = config_obj.projector
+    if config_obj.language_model:
+        load_kwargs["language_model"] = config_obj.language_model
+
+
     #deal with quantization later here:
 
-    
-    
-
-
-
-
-
-    return
+    pretrained_model_name_or_path = weights_save_path or config_obj.base_model
+    #TODO -> add load kwargs for llava (quantization etc)
+    model: PreTrainedModel = LlavaForConditionalGeneration.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
+    return model
 
 def to_device(
         model: PreTrainedModel,
