@@ -102,6 +102,10 @@ class LMM(BaseModel):
 
         self.model_name = self.config_obj.base_model
         #need to load vision tower, connector, llm 
+        #fix this later. i think for now just load without configurable modules (vt, c, llm)
+        #self.vision_tower = self.config_obj.vision_tower
+        #self.connector = self.config_obj.connector
+        #self.llm = self.config_obj.llm
 
 
         self.model_config = AutoConfig.from_pretrained(self.config_obj.base_model)

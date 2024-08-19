@@ -1,13 +1,11 @@
 import logging
-import copy
-import tempfile
 from typing import Dict, Optional, Tuple, TYPE_CHECKING, Union
 from packaging import version
 
 import transformers
 import torch
 import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig, BitsAndBytesConfig, LlavaForConditionalGeneration
+from transformers import PreTrainedModel, AutoProcessor, AutoConfig, BitsAndBytesConfig, LlavaForConditionalGeneration
 
 if TYPE_CHECKING:
     from ludwig.schema.model_types.lmm import LMMModelConfig
@@ -17,6 +15,13 @@ logger = logging.getLogger(__name__)
 
 transformers_436 = version.parse(transformers.__version__) >= version.parse("4.36.0")
 
+
+#parameters listed here for llava training
+#https://github.com/TinyLLaVA/TinyLLaVA_Factory/blob/main/tinyllava/model/configuration_tinyllava.py
+
+
+
+
 def load_pretrained_from_config(
         config_obj: LMMModelConfig,
         model_config: Optional[AutoConfig] = None,
@@ -25,12 +30,19 @@ def load_pretrained_from_config(
     load_kwargs = {}
 
     #placeholder until lmms/language_model,vision_tower,projector built out
+    #deal with defaults?
     if config_obj.vision_tower:
         load_kwargs["vision_tower"] = config_obj.vision_tower
     if config_obj.projector:
         load_kwargs["projector"] = config_obj.projector
     if config_obj.language_model:
         load_kwargs["language_model"] = config_obj.language_model
+
+    #LLM(language_model)
+    #VisionTower(vision_tower)
+    #connector(projector)
+
+
 
 
     #deal with quantization later here:
@@ -49,3 +61,4 @@ def to_device(
     #add 
 
     return
+

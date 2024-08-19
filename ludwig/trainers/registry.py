@@ -7,6 +7,8 @@ _ray_trainers_registry = Registry()
 _llm_trainers_registry = Registry()
 _llm_ray_trainers_registry = Registry()
 
+#add ray here?
+_lmm_trainers_registry = Registry()
 
 @DeveloperAPI
 def get_trainers_registry() -> Registry:
@@ -118,4 +120,11 @@ def register_llm_ray_trainer(trainer_type: str, default=False):
                 _llm_ray_trainers_registry[key] = cls
         return cls
 
+    return wrap
+
+@DeveloperAPI
+def register_lmm_trainer(trainer_type: str, default=False):
+    def wrap(cls):
+        _lmm_trainers_registry[trainer_type] = cls
+        return cls
     return wrap
