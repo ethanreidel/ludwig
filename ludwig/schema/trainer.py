@@ -15,6 +15,7 @@ from ludwig.constants import (
     MODEL_ECD,
     MODEL_GBM,
     MODEL_LLM,
+    MODEL_LMM,
     TRAINING,
 )
 from ludwig.error import ConfigValidationError
@@ -62,6 +63,10 @@ def get_llm_trainer_cls(trainer_type: str):
     """Returns the adapter config class registered with the given name."""
     return _llm_trainer_schema_registry[trainer_type]
 
+@DeveloperAPI
+def get_lmm_trainer_cls(trainer_type: str):
+    """Returns the adapter config class registered with the given name."""
+    return _lmm_trainer_schema_registry[trainer_type]
 
 @DeveloperAPI
 @ludwig_dataclass
@@ -1056,6 +1061,8 @@ def get_model_type_jsonschema(model_type: str = MODEL_ECD):
     enum = [MODEL_ECD]
     if model_type == MODEL_GBM:
         enum = [MODEL_GBM]
+    elif model_type == MODEL_LMM:
+        enum = [MODEL_LMM]
     elif model_type == MODEL_LLM:
         enum = [MODEL_LLM]
 
@@ -1115,6 +1122,9 @@ def get_llm_trainer_conds():
         conds.append(preproc_cond)
     return conds
 
+#TODO -> Add get_lmm_trainer_conds
+
+
 
 @DeveloperAPI
 def LLMTrainerDataclassField(default="none", description=""):
@@ -1140,7 +1150,7 @@ def LLMTrainerDataclassField(default="none", description=""):
                         "description": "The type of LLM trainer to use",
                     },
                 },
-                "title": "llm_trainer_options",
+                "title": "LLM_trainer_options",
                 "allOf": get_llm_trainer_conds(),
                 "required": ["type"],
                 "description": description,
@@ -1148,19 +1158,20 @@ def LLMTrainerDataclassField(default="none", description=""):
 
     return LLMTrainerSelection().get_default_field()
 
-
+#TODO -> swap to LMM from LLM
+#partially done need lmm_trainer_conds
 @DeveloperAPI
 def LMMTrainerDataclassField(default="none", description=""):
     class LMMTrainerSelection(schema_utils.TypeSelection):
         def __init__(self):
             super().__init__(
-                registry=_llm_trainer_schema_registry,
+                registry=_lmm_trainer_schema_registry,
                 default_value=default,
                 description=description,
             )
 
         def get_schema_from_registry(self, key: str) -> Type[schema_utils.BaseMarshmallowConfig]:
-            return get_llm_trainer_cls(key)
+            return get_lmm_trainer_cls(key)
 
         def _jsonschema_type_mapping(self):
             return {
@@ -1168,15 +1179,15 @@ def LMMTrainerDataclassField(default="none", description=""):
                 "properties": {
                     "type": {
                         "type": "string",
-                        "enum": list(_llm_trainer_schema_registry.keys()),
+                        "enum": list(_lmm_trainer_schema_registry.keys()),
                         "default": default,
-                        "description": "The type of LLM trainer to use",
+                        "description": "The type of LMM trainer to use",
                     },
                 },
-                "title": "llm_trainer_options",
-                "allOf": get_llm_trainer_conds(),
+                "title": "lmm_trainer_options",
+                "allOf": get_lmm_trainer_conds(),
                 "required": ["type"],
                 "description": description,
             }
 
-    return LLMTrainerSelection().get_default_field()
+    return LMMTrainerSelection().get_default_field()
