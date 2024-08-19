@@ -30,7 +30,7 @@ from tqdm import tqdm
 
 from ludwig.api_annotations import DeveloperAPI
 from ludwig.backend.utils.storage import StorageManager
-from ludwig.constants import MODEL_LLM
+from ludwig.constants import MODEL_LLM, MODEL_LMM
 from ludwig.data.cache.manager import CacheManager
 from ludwig.data.dataframe.base import DataFrameEngine
 from ludwig.data.dataframe.pandas import PANDAS
@@ -282,11 +282,13 @@ class LocalBackend(LocalPreprocessingMixin, LocalTrainingMixin, Backend):
         model: BaseModel,
         **kwargs,
     ) -> BaseTrainer:  # type: ignore[override]
-        from ludwig.trainers.registry import get_llm_trainers_registry, get_trainers_registry
+        from ludwig.trainers.registry import get_llm_trainers_registry, get_trainers_registry, get_lmm_trainers_registry
 
         trainer_cls: type
         if model.type() == MODEL_LLM:
             trainer_cls = get_from_registry(config.type, get_llm_trainers_registry())
+        elif model.type() == MODEL_LMM:
+            trainer_cls = get_from_registry(config.type, get_lmm_trainers_registry())
         else:
             trainer_cls = get_from_registry(model.type(), get_trainers_registry())
 

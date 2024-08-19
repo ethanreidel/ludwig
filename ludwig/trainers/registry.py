@@ -29,6 +29,10 @@ def get_llm_trainers_registry() -> Registry:
 def get_llm_ray_trainers_registry() -> Registry:
     return _llm_ray_trainers_registry
 
+@DeveloperAPI
+def get_lmm_trainers_registry() -> Registry:
+    return _lmm_trainers_registry
+
 
 @DeveloperAPI
 def register_trainer(model_type: str, default=False):
