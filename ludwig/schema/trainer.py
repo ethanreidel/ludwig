@@ -1150,7 +1150,7 @@ def LLMTrainerDataclassField(default="none", description=""):
                         "description": "The type of LLM trainer to use",
                     },
                 },
-                "title": "LLM_trainer_options",
+                "title": "llm_trainer_options",
                 "allOf": get_llm_trainer_conds(),
                 "required": ["type"],
                 "description": description,
