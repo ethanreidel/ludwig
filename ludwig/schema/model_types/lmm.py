@@ -22,6 +22,8 @@ from ludwig.schema.preprocessing import PreprocessingConfig, PreprocessingField
 from ludwig.schema.trainer import LLMTrainerConfig, LLMTrainerDataclassField, LMMTrainerConfig, LMMTrainerDataclassField
 from ludwig.schema.utils import ludwig_dataclass
 from ludwig.schema.lmms.base_lmm_model import BaseLMMModelDataclassField
+from ludwig.schema.lmms.language_model import BaseLMMLanguageModelDataclassField
+from ludwig.schema.lmms.vision_tower import BaseVisionTowerDataclassField
 
 
 @DeveloperAPI
@@ -33,7 +35,10 @@ class LMMModelConfig(ModelConfig):
     model_type: str = schema_utils.ProtectedString("lmm")
 
     base_model: str = BaseLMMModelDataclassField()
-    #add vision_tower, projector, language_model dataclass fields here
+    language_model: str = BaseLMMLanguageModelDataclassField()
+    vision_tower: str = BaseVisionTowerDataclassField()
+    #placeholder projector right now until dataclassfield is built out
+    projector: str = schema_utils.ProtectedString("linear")
 
     input_features: FeatureCollection[BaseInputFeatureConfig] = LMMInputFeatureSelection().get_list_field()
     output_features: FeatureCollection[BaseOutputFeatureConfig] = LMMOutputFeatureSelection().get_list_field()
