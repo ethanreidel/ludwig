@@ -23,7 +23,10 @@ from ludwig.schema.trainer import LLMTrainerConfig, LLMTrainerDataclassField, LM
 from ludwig.schema.utils import ludwig_dataclass
 from ludwig.schema.lmms.base_lmm_model import BaseLMMModelDataclassField
 from ludwig.schema.lmms.language_model import BaseLMMLanguageModelDataclassField
-from ludwig.schema.lmms.vision_tower import BaseVisionTowerDataclassField
+#TODO -> fill out configuration files for components
+from ludwig.schema.lmms.vision_tower import VisionTowerConfig
+from ludwig.schema.lmms.language_model import LanguageModelConfig
+from ludwig.schema.lmms.projector import ProjectorConfig
 
 
 @DeveloperAPI
@@ -35,8 +38,10 @@ class LMMModelConfig(ModelConfig):
     model_type: str = schema_utils.ProtectedString("lmm")
 
     base_model: str = BaseLMMModelDataclassField()
-    language_model: str = BaseLMMLanguageModelDataclassField()
-    vision_tower: str = BaseVisionTowerDataclassField()
+    #language_model: Optional[LLMDefaultsConfig] = LLMDefaultsField().get_default_field()
+    language_model: str = schema_utils.ProtectedString("tinyllama")
+    #vision_tower: Optional[VisionTowerConfig] =
+    vision_tower: str = schema_utils.ProtectedString("clip") 
     #placeholder projector right now until dataclassfield is built out
     projector: str = schema_utils.ProtectedString("linear")
 

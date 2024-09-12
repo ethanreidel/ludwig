@@ -19,7 +19,7 @@ transformers_436 = version.parse(transformers.__version__) >= version.parse("4.3
 #parameters listed here for llava training
 #https://github.com/TinyLLaVA/TinyLLaVA_Factory/blob/main/tinyllava/model/configuration_tinyllava.py
 
-
+#for now, we just want to have 1 default for each component
 
 
 def load_pretrained_from_config(
@@ -49,6 +49,7 @@ def load_pretrained_from_config(
 
     pretrained_model_name_or_path = weights_save_path or config_obj.base_model
     #TODO -> add load kwargs for llava (quantization etc)
+    #figure out how to load model with modular components (llm, vision tower projector)
     model: PreTrainedModel = LlavaForConditionalGeneration.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
     return model
 
@@ -62,3 +63,14 @@ def to_device(
 
     return
 
+
+#load utils here
+
+def load_vision_tower():
+    pass
+
+def load_llm():
+    pass
+
+def load_projector():
+    pass
