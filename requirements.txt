@@ -63,7 +63,7 @@ lxml                # html
 html5lib            # html
 
 # requirement for loading hugging face datasets
-datasets
+datasets==2.19.2
 
 # pin required for torch 2.1.0
 urllib3<2
