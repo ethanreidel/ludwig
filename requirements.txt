@@ -16,7 +16,9 @@ transformers>=4.42.3
 tifffile
 imagecodecs
 tokenizers>=0.15
-spacy>=2.3
+#spacy>=2.3
+spacy==3.5.3
+setuptools==75.2.0
 PyYAML>=3.12,<6.0.1,!=5.4.* #Exlude PyYAML 5.4.* due to incompatibility with awscli
 absl-py
 kaggle
