@@ -8,3 +8,19 @@ order_by_type = "False"
 [tool.black]
 line-length = 120
 exclude = "./python/"
+
+[tool.poetry]
+name = "ludwig"
+version = "0.10.4"
+description = "Declarative machine learning: End-to-end machine learning pipelines using data-driven configurations."
+authors = ["Piero Molino"]
+license = "Apache 2.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
